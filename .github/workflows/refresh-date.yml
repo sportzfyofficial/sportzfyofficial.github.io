@@ -47,8 +47,8 @@ jobs:
 
       - name: Rewrite sitemap.xml
         run: |
-          DATE='${{ steps.t.outputs.date }}'
-          sed -i -E "s|<lastmod>[^<]+</lastmod>|<lastmod>${DATE}</lastmod>|" sitemap.xml
+          ISO='${{ steps.t.outputs.iso }}'
+          sed -i -E "s|<lastmod>[^<]+</lastmod>|<lastmod>${ISO}</lastmod>|" sitemap.xml
 
       - name: Commit if changed
         run: |
