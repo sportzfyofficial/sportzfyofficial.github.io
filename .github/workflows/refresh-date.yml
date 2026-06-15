@@ -1,0 +1,63 @@
+name: Refresh freshness date
+
+# Bumps the static "last modified" timestamps in index.html and sitemap.xml
+# every 6 hours, then commits the change. Googlebot sees a recently-modified
+# page on every crawl without depending on JavaScript execution.
+
+on:
+  schedule:
+    - cron: '17 */6 * * *'   # every 6 hours at :17
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute timestamps (now - 10 min)
+        id: t
+        run: |
+          ISO=$(date -u -d '10 minutes ago' +"%Y-%m-%dT%H:%M:%S+00:00")
+          DATE=$(date -u -d '10 minutes ago' +"%Y-%m-%d")
+          echo "iso=$ISO"   >> "$GITHUB_OUTPUT"
+          echo "date=$DATE" >> "$GITHUB_OUTPUT"
+
+      - name: Rewrite timestamps in index.html
+        run: |
+          ISO='${{ steps.t.outputs.iso }}'
+          DATE='${{ steps.t.outputs.date }}'
+
+          # <meta name="last-modified" ...>
+          sed -i -E "s|(<meta name=\"last-modified\" content=\")[^\"]+(\")|\1${ISO}\2|" index.html
+          # <meta property="article:modified_time" ...>
+          sed -i -E "s|(<meta property=\"article:modified_time\" content=\")[^\"]+(\")|\1${ISO}\2|" index.html
+          # <meta property="og:updated_time" ...>
+          sed -i -E "s|(<meta property=\"og:updated_time\" content=\")[^\"]+(\")|\1${ISO}\2|" index.html
+          # JSON-LD dateModified (ISO form)
+          sed -i -E "s|(\"dateModified\":\")[0-9T:+\\-]+(\")|\1${ISO}\2|g" index.html
+          # SoftwareApplication uses YYYY-MM-DD form on one line — patch it back to date-only after the broad sweep
+          sed -i -E "s|(\"@type\":\"SoftwareApplication\"[^}]*\"dateModified\":\")[^\"]+(\")|\1${DATE}\2|" index.html
+          # visible <time datetime="..."> attributes
+          sed -i -E "s|(<time id=\"updated-time\" datetime=\")[^\"]+(\")|\1${ISO}\2|" index.html
+          sed -i -E "s|(<time id=\"footer-time\" datetime=\")[^\"]+(\")|\1${ISO}\2|" index.html
+
+      - name: Rewrite sitemap.xml
+        run: |
+          DATE='${{ steps.t.outputs.date }}'
+          sed -i -E "s|<lastmod>[^<]+</lastmod>|<lastmod>${DATE}</lastmod>|" sitemap.xml
+
+      - name: Commit if changed
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet; then
+            echo "No changes."
+            exit 0
+          fi
+          git add index.html sitemap.xml
+          git commit -m "chore: refresh freshness timestamps"
+          git push
